@@ -1,6 +1,6 @@
-use std::borrow::{Borrow, Cow};
 use crate::{AppResult, Error};
 use regex::{Captures, Regex};
+use std::borrow::{Borrow, Cow};
 use std::fmt::{Display, Formatter};
 use std::ops::{Add, AddAssign};
 use std::str::FromStr;
@@ -32,24 +32,39 @@ pub struct Todo {
 
 #[allow(dead_code)]
 impl Todo {
-    pub fn new(done: bool, priority: Option<char>, created: Option<Date>,
-               completed: Option<Date>, description: String) -> AppResult<Self> {
+    pub fn new(
+        done: bool,
+        priority: Option<char>,
+        created: Option<Date>,
+        completed: Option<Date>,
+        description: String,
+    ) -> AppResult<Self> {
         if completed.is_some() && created.is_none() {
-            return Err(Error::new("Can't have a Todo with a completion date and not a creation date"))
+            return Err(Error::msg(
+                "Can't have a Todo with a completion date and not a creation date",
+            ));
         }
-        Ok(Self { done, priority, created, completed, description })
+        Ok(Self {
+            done,
+            priority,
+            created,
+            completed,
+            description,
+        })
     }
 
     fn part_reg() -> &'static Regex {
-        static PART_REG: LazyLock<Regex> = LazyLock::new(|| Regex::new(
-            r"(^|\s)(?<tag>(?<head>@|\+|(?<key>\w+):)(?<body>\S)+)\b").unwrap());
+        static PART_REG: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"(^|\s)(?<tag>(?<head>@|\+|(?<key>\w+):)(?<body>\S)+)\b").unwrap()
+        });
         &*PART_REG
     }
 
-    pub fn find_meta(&self) -> impl Iterator<Item=DescriptionPart> {
-        Self::part_reg().captures_iter(&self.description)
-            .map(|c| DescriptionPart::parse(c.name("tag").unwrap().as_str())
-                .expect("Can't parse DescriptionPart"))
+    pub fn find_meta(&self) -> impl Iterator<Item = DescriptionPart> {
+        Self::part_reg().captures_iter(&self.description).map(|c| {
+            DescriptionPart::parse(c.name("tag").unwrap().as_str())
+                .expect("Can't parse DescriptionPart")
+        })
     }
 
     pub fn get_tag(&self) -> Vec<DescriptionPart> {
@@ -73,7 +88,8 @@ impl Todo {
             .filter_map(|t| match t {
                 DescriptionPart::Data(k, v) if k == ctx.as_ref() => Some(v),
                 _ => None,
-            }).next()
+            })
+            .next()
     }
 
     pub fn escape_description(desc: &str) -> Cow<str> {
@@ -95,8 +111,10 @@ impl Todo {
         Ok(vec)
     }
 
-    pub async fn write_file(mut f: impl AsyncWrite + Unpin,
-                            todos: impl IntoIterator<Item=impl Borrow<Todo>>) -> AppResult<()> {
+    pub async fn write_file(
+        mut f: impl AsyncWrite + Unpin,
+        todos: impl IntoIterator<Item = impl Borrow<Todo>>,
+    ) -> AppResult<()> {
         use std::io::Write;
         let mut buf: Vec<u8> = Vec::new();
         for todo in todos {
@@ -140,7 +158,8 @@ impl FromStr for Todo {
             s = &s[2..];
         }
 
-        static PRI_REG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\(?<pri>([A-Z])\)\s+").unwrap());
+        static PRI_REG: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^\(?<pri>([A-Z])\)\s+").unwrap());
         if let Some(pri) = PRI_REG.captures(s) {
             s = &s[pri.get(0).unwrap().len()..];
             priority = Some(pri.name("pri").unwrap().as_str().chars().next().unwrap());
@@ -148,10 +167,12 @@ impl FromStr for Todo {
 
         if let Some((part, rest)) = s.split_once(char::is_whitespace) {
             if let Ok(date) = Date::from_str(part) {
-                if let Some((creat, rest)) = rest.split_once(char::is_whitespace)
-                    .and_then(|(part, rest)| Date::from_str(part).ok().map(|d| (d, rest))) {
+                if let Some((creat, rest)) = rest
+                    .split_once(char::is_whitespace)
+                    .and_then(|(part, rest)| Date::from_str(part).ok().map(|d| (d, rest)))
+                {
                     if !done {
-                        return Err(Error::new("Completion date present on uncompleted todo"))
+                        return Err(Error::msg("Completion date present on uncompleted todo"));
                     }
                     s = rest;
                     created = Some(creat);
@@ -163,7 +184,13 @@ impl FromStr for Todo {
             }
         }
 
-        Self::new(done, priority, created, completed, s.trim_start().to_string())
+        Self::new(
+            done,
+            priority,
+            created,
+            completed,
+            s.trim_start().to_string(),
+        )
     }
 }
 
@@ -183,10 +210,10 @@ impl FromStr for Date {
                     year: year.parse()?,
                     month: month.parse()?,
                     day: day.parse()?,
-                })
+                });
             }
         }
-        Err(Error::new("Invalid date format"))
+        Err(Error::msg("Invalid date format"))
     }
 }
 
@@ -199,7 +226,7 @@ impl<'a> DescriptionPart<'a> {
         } else if let Some((k, v)) = s.split_once(':') {
             Ok(DescriptionPart::Data(k, v))
         } else {
-            Err(Error::new(format!("Couldn't parse DescriptionPart '{s}'")))
+            Err(Error::msg(format!("Couldn't parse DescriptionPart '{s}'")))
         }
     }
 }
@@ -226,7 +253,10 @@ impl AddAssign<DescriptionPart<'_>> for Todo {
     }
 }
 
-impl<T> Add<T> for Todo where Todo: AddAssign<T> {
+impl<T> Add<T> for Todo
+where
+    Todo: AddAssign<T>,
+{
     type Output = Self;
 
     fn add(mut self, rhs: T) -> Self::Output {

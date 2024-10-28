@@ -1,9 +1,10 @@
-use std::borrow::Cow;
+use crate::config::{AppConfig, SecretString};
 use crate::todo::{Date, DescriptionPart, Todo};
-use crate::{AppConfig, AppResult, Error, SecretString};
+use crate::{AppResult, Error};
 use reqwest::{IntoUrl, Method, RequestBuilder};
 use serde::de::Error as SerdeError;
 use serde::Deserialize;
+use std::borrow::Cow;
 use url::Url;
 
 const API_BASE: &str = "api/v4/";
@@ -29,7 +30,8 @@ impl GitlabAPI {
 
     fn request(&self, method: Method, u: impl IntoUrl) -> RequestBuilder {
         const AUTH_HEADER: &str = "PRIVATE-TOKEN";
-        self.client.request(method, u)
+        self.client
+            .request(method, u)
             .header(AUTH_HEADER, self.token.as_ref())
     }
 
@@ -41,15 +43,11 @@ impl GitlabAPI {
         const TODO_ENDPOINT: &str = "todos/";
         let pending = if pending { STATE_PENDING } else { STATE_DONE };
         let url = self.base.join(TODO_ENDPOINT).unwrap();
-        let request = self.get(url.clone())
-            .query(&[("state", pending)]);
+        let request = self.get(url.clone()).query(&[("state", pending)]);
         print!("GET {url} -> ");
-        let response = request
-            .send()
-            .await?;
+        let response = request.send().await?;
         println!("{response:?}");
-        response.json()
-            .await
+        response.json().await
     }
 
     pub async fn get_pending_todos(&self) -> reqwest::Result<Vec<GitlabTodo>> {
@@ -61,10 +59,7 @@ impl GitlabAPI {
     }
 
     pub async fn get_all_todos(&self) -> reqwest::Result<Vec<GitlabTodo>> {
-        Ok([
-            self.get_todos(true).await?,
-            self.get_todos(false).await?
-        ].concat())
+        Ok([self.get_todos(true).await?, self.get_todos(false).await?].concat())
     }
 }
 
@@ -78,11 +73,11 @@ pub struct GitlabTodo {
     pub updated_at: String,
     pub action_name: String,
     pub target_type: String,
-    #[serde(deserialize_with="get_username", default)]
+    #[serde(deserialize_with = "get_username", default)]
     pub author: Option<String>,
-    #[serde(deserialize_with="get_entity_path", default)]
+    #[serde(deserialize_with = "get_entity_path", default)]
     pub project: Option<String>,
-    #[serde(deserialize_with="get_entity_path", default)]
+    #[serde(deserialize_with = "get_entity_path", default)]
     pub group: Option<String>,
     pub target_url: Url,
 }
@@ -124,7 +119,7 @@ impl GitlabTodo {
         fn parse_date(raw: impl AsRef<str>) -> AppResult<Date> {
             let raw = raw.as_ref();
             raw.split_once('T')
-                .ok_or(Error::new(format!("Couldn't parse date from '{raw}'")))
+                .ok_or(Error::msg(format!("Couldn't parse date from '{raw}'")))
                 .and_then(|(d, _)| Date::from_str(d))
         }
         let done = self.is_done();
@@ -134,11 +129,20 @@ impl GitlabTodo {
         } else {
             Todo::escape_description(self.body.as_str())
         };
-        let mut result = Todo::new(done,
-                                   None,
-                                   Some(parse_date(self.created_at)?),
-                                   if done { Some(parse_date(self.updated_at)?) } else { None },
-                                   format!("[{}:{}] {}", self.target_type, self.action_name, description))?;
+        let mut result = Todo::new(
+            done,
+            None,
+            Some(parse_date(self.created_at)?),
+            if done {
+                Some(parse_date(self.updated_at)?)
+            } else {
+                None
+            },
+            format!(
+                "[{}:{}] {}",
+                self.target_type, self.action_name, description
+            ),
+        )?;
 
         if let Some(proj) = self.project {
             result += DescriptionPart::Project(&proj);
@@ -157,4 +161,3 @@ impl GitlabTodo {
         self.state == STATE_DONE
     }
 }
-
