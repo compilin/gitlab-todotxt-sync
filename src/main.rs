@@ -22,21 +22,31 @@ type AppResult<T> = Result<T, Error>;
 #[derive(Deserialize, Clone, Debug)]
 #[allow(dead_code)]
 struct AppConfig {
+    /// Gitlab Personal Access Token for the target user
     gitlab_token: SecretString,
+    /// Base URL of the Gitlab instance
     gitlab_host: Url,
+    /// Path to the todotxt file to sync (default = $HOME/.todo/todo.txt)
+    #[serde(default = "AppConfig::default_todo_file")]
     todo_file: PathBuf,
+    /// Context tag to add to synced items. Can be null for none.
+    /// If not none, items in the todotxt file without this tag will be ignored
+    #[serde(default = "AppConfig::default_context_tag")]
     context_tag: Option<String>,
+    /// Disable escaping meta tags in Gitlab-originatig text (i.e key:value will be synced as key\:value)
     #[serde(default)]
     no_escape_meta: bool,
-    #[serde(default)]
-    fetch_done: bool,
+    /// Set this to your Gitlab username so item's authors can be specified if they're not you
+    /// (TODO: feature not implemented yet)
     #[serde(default)]
     username: Option<String>,
+    /// Specifies what to do with items marked as done, see [`DonePolicy`] variants
     #[serde(default)]
     done_todo_policy: DonePolicy,
 }
 
 #[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
 enum DonePolicy {
     // Mark todos as done in the output if they were present in the file previously, otherwise skip
     #[default]
@@ -174,6 +184,16 @@ impl AppConfig {
     fn get_api(&self) -> Result<GitlabAPI, ParseError> {
         GitlabAPI::new(self.gitlab_host.clone(), self.gitlab_token.clone())
     }
+
+    fn default_context_tag() -> Option<String> {
+        Some("gitlab".into())
+    }
+
+    fn default_todo_file() -> PathBuf {
+        dirs::home_dir()
+            .expect("Could not determine home dir")
+            .join(".todo/todo.txt")
+    }
 }
 
 impl Default for AppConfig {
@@ -184,7 +204,6 @@ impl Default for AppConfig {
             todo_file: Default::default(),
             context_tag: None,
             no_escape_meta: false,
-            fetch_done: false,
             username: None,
             done_todo_policy: Default::default(),
         }
@@ -328,7 +347,8 @@ mod tests {
             + DescriptionPart::Data(DATAK, DATAV);
         let escaped = Todo::new(false, None, None, None,
             Todo::escape_description(&todo.description).to_string()).unwrap();
-        assert_eq!(escaped.find_meta().count(), 0, "Escaped description shouldn't return any meta");
+        assert_eq!(escaped.find_meta().collect::<Vec<_>>(), vec![],
+                   "Escaped description shouldn't return any meta");
         for s in [PRJ, CTX, DATAK, DATAV] {
             assert!(escaped.description.find(s).is_some(),
                 "Escaped description should still contain '{}'", s);
